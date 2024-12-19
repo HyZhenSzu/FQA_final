@@ -12,17 +12,23 @@ import numpy as np
 
     every time you need to read a new data file, pass the data_file_path to the constructor.
 
-    1. If you need to get the dataframe, use the "get_df()" method.
+    1. If you need to get the dataframe and add other preprocess steps, use the "get_df()" method.
     
     2. If you need to get the column list, use the "get_columnlist()" method.
 
-    3. If you need to get the train, val, and test sets, use the "dataset_X" and "dataset_y" attributes,
+    3. If you need to get the train, val, and test sets, use the "datasets" attributes,
     which are dictionaries with keys "train", "val", and "test".
 
         For example:
 
             data_processor = StockDataProcessor(data_file_path)
-            train_X, train_y = data_processor.dataset_X["train"], data_processor.dataset_y["train"]
+            train_data = data_processor.datasets["train"]
+
+    4. If you want to get split X and y, call "split_dataset_with_target(df)", which returns X and y.
+
+        For example:
+
+            train_X, train_y = split_dataset_with_target(train_data)
         
 '''
 
@@ -31,10 +37,11 @@ class StockDataProcessor:
     _row_data = None
     _data_file_path = None
     _df : pd.DataFrame = None
-    _columns : list = []
+    _features : list = []
+    _target = "ret"
 
-    dataset_X = {"train": None, "val": None, "test": None}  # storing features
-    dataset_y = {"train": None, "val": None, "test": None}  # storingtarget column
+    datasets = {"train": None, "val": None, "test": None}  # storing features
+    # dataset_y = {"train": None, "val": None, "test": None}  # storing target column
 
 
 
@@ -44,9 +51,9 @@ class StockDataProcessor:
         return self._df
     
     def get_columnlist(self):
-        if self._columns is None:
+        if self._features is None:
             raise ValueError("Column list is not initialized.")
-        return self._columns
+        return self._features
     
     def get_row_data(self):
         if self._row_data is None:
@@ -78,9 +85,9 @@ class StockDataProcessor:
 
         # 所有特征名，直接打出来看着乱乱的，我就拆成一行8个了
         # 不想看特征名输出要从这下面的代码开始注释
-        # print("num of columns: ", len(self._columns), "\nColumn names:\n")
-        # for i in range(0, len(self._columns), 8):
-        #     print(self._columns[i:i+8])
+        # print("num of columns: ", len(self._features), "\nColumn names:\n")
+        # for i in range(0, len(self._features), 8):
+        #     print(self._features[i:i+8])
         # print("\n")
 
         # change to hot-encoding
@@ -93,16 +100,24 @@ class StockDataProcessor:
 
         # split the datasets
         self._split_data()
+
+        # normalize the data
+        self._normalize_data()
+
         
 
     # set all the columns' characters to lowercase
     def _set_lowercase(self):
         self._df.columns = self._df.columns.astype(str).str.lower()
-        self._columns = self._df.columns.tolist()
+        self._target = "ret"
+        self._features = self._df.drop(columns=[self._target]).columns.to_list()
+        if 'date' in self._features:
+            self._features.remove('date')
 
     def _change_date_type(self):
         # change the data type of 'date' to datetime
         self._df['date'] = pd.to_datetime(self._df['date'], format='%Y%m%d')
+        self._df.dropna(subset=['date'], inplace=True)  # drop rows with missing date
         self._df.set_index('date', inplace=True)
 
     
@@ -186,34 +201,49 @@ class StockDataProcessor:
         #     plt.show()
 
     def _split_data(self):
-        # 表格为时序数据，时序数据划分训练集、验证集和测试集必须是连续的，防止泄露未来信息
-        # 下面划分比例跟Sample不一样
-        # datas will be split into 60% training set, 20% validation set and 20% testing set
-        n = len(self._df)
-        train_end = int(n * 0.6)
-        val_end = int(n * 0.8)
+        # 按照时间划分数据，这里参考哈里斯的tutorial
+        # 
+        # datas will be split into training set, validation set and testing set by year
+        # 1957-2004 for training set, 2005-2009 for validation set, 2010-2016 for testing set
+        self._df['year'] = self._df.index.year
+        ind_train = self._df[self._df.year.isin(range(1926,2005))] # 1957 to 2004
+        ind_val = self._df[self._df.year.isin(range(2005,2010))] # 2005 to 2009
+        ind_test = self._df[self._df.year.isin(range(2010,2017))] # 2010 to 2016
 
-        train_data = self._df[:train_end]
-        val_data = self._df[train_end:val_end]
-        test_data = self._df[val_end:]
+        train_data = ind_train.copy().reset_index(drop=True)
+        val_data = ind_val.copy().reset_index(drop=True)
+        test_data = ind_test.copy().reset_index(drop=True)
 
         print(f"Size of Training Set: {len(train_data)}")
         print(f"Size of Validation Set: {len(val_data)}")
         print(f"Size of Testing Set: {len(test_data)}")
 
-        # get the target column
-        target_column = "ret"
+        # # get the target column
+        # target_column = "ret"
 
-        self.dataset_X["train"], self.dataset_y["train"] = split_dataset_with_target(train_data, target_column)
-        self.dataset_X["val"], self.dataset_y["val"] = split_dataset_with_target(val_data, target_column)
-        self.dataset_X["test"], self.dataset_y["test"] = split_dataset_with_target(test_data, target_column)
+        # self.dataset_X["train"], self.dataset_y["train"] = split_dataset_with_target(train_data, target_column)
+        # self.dataset_X["val"], self.dataset_y["val"] = split_dataset_with_target(val_data, target_column)
+        # self.dataset_X["test"], self.dataset_y["test"] = split_dataset_with_target(test_data, target_column)
+        self.datasets["train"] = train_data
+        self.datasets["val"] = val_data
+        self.datasets["test"] = test_data
    
+    def _normalize_data(self):
+        # self.datasets["train"] = self.datasets["train"][self._features].apply(normalize).fillna(0)
+        # self.datasets["val"] = self.datasets["val"][self._features].apply(normalize).fillna(0)
+        # self.datasets["test"] = self.datasets["test"][self._features].apply(normalize).fillna(0)
+        for key in ["train", "val", "test"]:
+            self.datasets[key][self._features] = self.datasets[key][self._features].apply(normalize).fillna(0)
+            self.datasets[key] = self.datasets[key][self._features + [self._target]]  
 
 
+def normalize(series):
+  return (series-series.mean(axis=0))/series.std(axis=0)
 
-def split_dataset_with_target(df, target_column):
-    X = df.drop(columns=[target_column])
-    y = df[target_column]
+
+def split_dataset_with_target(df):
+    X = df.drop(columns=["ret"])
+    y = df["ret"]
     return X, y
 
 
