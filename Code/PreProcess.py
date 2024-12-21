@@ -50,9 +50,9 @@ class StockDataProcessor:
             raise ValueError("Dataframe is not initialized.")
         return self._df
     
-    def get_columnlist(self):
+    def get_features(self):
         if self._features is None:
-            raise ValueError("Column list is not initialized.")
+            raise ValueError("Features list is not initialized.")
         return self._features
     
     def get_row_data(self):
@@ -95,11 +95,13 @@ class StockDataProcessor:
         for column in self._df.select_dtypes(include=['object']).columns:
             self._df[column] = label_encoder.fit_transform(self._df[column])
 
+        # split the datasets
+        self._split_data()
+
         # print and deal with missing values                  
         self._deal_with_missing_values()
 
-        # split the datasets
-        self._split_data()
+        self.deal_with_outlier()
 
         # normalize the data
         self._normalize_data()
@@ -123,9 +125,9 @@ class StockDataProcessor:
     
     def _deal_with_missing_values(self):
         # get missing values and print them
-        missing_values = self._df.isnull().sum()
-        pd.set_option('display.max_columns', None)
-        print("Missing values every column:\n", missing_values, "\n")
+        # missing_values = self._df.isnull().sum()
+        # pd.set_option('display.max_columns', None)
+        # print("Missing values every column:\n", missing_values, "\n")
 
 
         # # Variable plt_feature stores the feature name for plotting, default is "beta"
@@ -138,23 +140,13 @@ class StockDataProcessor:
         #     print(f"Feature '{plt_feature}' not found in the DataFrame.")
         #     print("Input the feature name for plotting: ")
         #     plt_feature = input()
-
-        # plt.figure(figsize=(6, 4))
-        # plt.hist(self._df[plt_feature], bins=30, color="green", alpha=0.7, label="Data (Before Processing)")
-        # plt.title(f"{plt_feature}: Distribution After Processing")
-        # plt.xlabel(plt_feature)
-        # plt.ylabel("Frequency")
-        # plt.grid(axis="y", linestyle="--", alpha=0.7)
-        # plt.tight_layout()
-        # plt.legend()
-        # plt.show()
             
 
         # 对于分布稳定且与时间无关的特征，下面采用均值法填充缺失值
         # fill missing values with mean
         mean_fill_features = ['bm', 'cfp', 'lev', 'agr', 'lgr', 'ps', 'quick', 'roaq', 'roeq', 'roic', 'sgr', 'tang']
         for feature in mean_fill_features:
-            if feature not in self._df.columns:
+            if feature not in self.datasets["train"].columns:
                 print(f"Feature '{feature}' not found in the DataFrame.")
                 continue
             mean_value = self._df[feature].mean()
@@ -164,7 +156,7 @@ class StockDataProcessor:
         # fill missing values with linear interpolation
         linear_features = ['beta', 'bm_ia', 'chinv', 'currat', 'cashdebt', 'depr', 'dy', 'ep', 'gma', 'rd_sale']
         for feature in linear_features:
-            if feature not in self._df.columns:
+            if feature not in self.datasets["train"].columns:
                 print(f"Feature '{feature}' not found in the DataFrame.")
                 continue
             self._df[feature] = self._df[feature].interpolate(method="linear")
@@ -173,7 +165,7 @@ class StockDataProcessor:
         # fill missing values with time series interpolation
         time_series_features = ['mom1m', 'mom6m', 'std_turn', 'std_dolvol', 'turn', 'retvol', 'maxret', 'rsup']
         for feature in time_series_features:
-            if feature not in self._df.columns:
+            if feature not in self.datasets["train"].columns:
                 print(f"Feature '{feature}' not found in the DataFrame.")
                 continue
             self._df[feature] = self._df[feature].interpolate(method="time")
@@ -182,23 +174,12 @@ class StockDataProcessor:
 
         # 其余全部缺失值用0填充
         # replace all missing values with 0
-        self._df.fillna(0, inplace=True)
+        self.datasets["train"].fillna(0, inplace=True)
 
         # get missing values and print them again
-        missing_values = self._df.isnull().sum()
-        print("Missing values every column:\n", missing_values, "\n")
+        # missing_values = self._df.isnull().sum()
+        # print("Missing values every column:\n", missing_values, "\n")
 
-        # # plot the feature distribution after processing
-        # if plt_feature in self._columns:
-        #     plt.figure(figsize=(6, 4))
-        #     plt.hist(self._df[plt_feature], bins=30, color="blue", alpha=0.7, label="Data (After Filling Missing Values)")
-        #     plt.title(f"{plt_feature}: Distribution After Processing")
-        #     plt.xlabel(plt_feature)
-        #     plt.ylabel("Frequency")
-        #     plt.grid(axis="y", linestyle="--", alpha=0.7)
-        #     plt.tight_layout()
-        #     plt.legend()
-        #     plt.show()
 
     def _split_data(self):
         # 按照时间划分数据，这里参考哈里斯的tutorial
@@ -214,10 +195,6 @@ class StockDataProcessor:
         val_data = ind_val.copy().reset_index(drop=True)
         test_data = ind_test.copy().reset_index(drop=True)
 
-        print(f"Size of Training Set: {len(train_data)}")
-        print(f"Size of Validation Set: {len(val_data)}")
-        print(f"Size of Testing Set: {len(test_data)}")
-
         # # get the target column
         # target_column = "ret"
 
@@ -229,12 +206,50 @@ class StockDataProcessor:
         self.datasets["test"] = test_data
    
     def _normalize_data(self):
-        # self.datasets["train"] = self.datasets["train"][self._features].apply(normalize).fillna(0)
-        # self.datasets["val"] = self.datasets["val"][self._features].apply(normalize).fillna(0)
-        # self.datasets["test"] = self.datasets["test"][self._features].apply(normalize).fillna(0)
         for key in ["train", "val", "test"]:
             self.datasets[key][self._features] = self.datasets[key][self._features].apply(normalize).fillna(0)
             self.datasets[key] = self.datasets[key][self._features + [self._target]]  
+
+    def deal_with_outlier(self):
+        # 确保训练集数据不为空
+        if self.datasets["train"].empty:
+            print("Training dataset is empty. Skipping outlier removal.")
+            return
+
+        print("Size before deal_with_outlier:", len(self.datasets["train"]))
+
+        # 识别连续特征（float 类型，且唯一值数目多）
+        continuous_features = [
+            feature for feature in self._features
+            if self.datasets["train"][feature].dtype == 'float64' and self.datasets["train"][feature].nunique() > 10
+        ]
+
+        # 初始化掩码
+        mask = pd.Series(True, index=self.datasets["train"].index)
+
+        # 遍历连续特征进行异常值处理
+        for feature in continuous_features:
+            mean = self.datasets["train"][feature].mean()
+            std = self.datasets["train"][feature].std()
+
+            # 如果标准差为 0，跳过该特征
+            if std == 0:
+                print(f"Skipping feature {feature} with zero standard deviation.")
+                continue
+
+            # 计算掩码，仅保留 mean ± 5*std 范围内的样本
+            feature_mask = (self.datasets["train"][feature] >= mean - 5 * std) & (self.datasets["train"][feature] <= mean + 5 * std)
+
+            # 合并掩码
+            mask &= feature_mask
+
+        # 应用掩码
+        self.datasets["train"] = self.datasets["train"][mask]
+
+        print(f"Removed {len(mask) - mask.sum()} rows with outliers from training data.")
+        print("Size after deal_with_outlier:", len(self.datasets["train"]))
+
+
 
 
 def normalize(series):
@@ -259,6 +274,10 @@ def main():
     # create a StockDataProcessor object and preprocess the dataframe
     data_processor = StockDataProcessor(data_file_path)
     print(data_processor.get_df().info())
+    
+    print(f"Size of Training Set: {len(data_processor.datasets['train'])}")
+    print(f"Size of Validation Set: {len(data_processor.datasets['val'])}")
+    print(f"Size of Testing Set: {len(data_processor.datasets['test'])}")
 
 
 
