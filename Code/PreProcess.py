@@ -1,5 +1,6 @@
 import pandas as pd
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+import scipy.stats as stats
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
 # import tensorflow as tf
@@ -82,9 +83,6 @@ class StockDataProcessor:
         # 数据里面日期的格式比较特殊，这里转换成了标准日期格式
         self._change_date_type()
 
-
-        # 所有特征名，直接打出来看着乱乱的，我就拆成一行8个了
-        # 不想看特征名输出要从这下面的代码开始注释
         # print("num of columns: ", len(self._features), "\nColumn names:\n")
         # for i in range(0, len(self._features), 8):
         #     print(self._features[i:i+8])
@@ -140,9 +138,8 @@ class StockDataProcessor:
         #     print(f"Feature '{plt_feature}' not found in the DataFrame.")
         #     print("Input the feature name for plotting: ")
         #     plt_feature = input()
-            
 
-        # 对于分布稳定且与时间无关的特征，下面采用均值法填充缺失值
+        # 对于正太分布且与时间无关的特征，下面采用均值法填充缺失值
         # fill missing values with mean
         mean_fill_features = ['bm', 'cfp', 'lev', 'agr', 'lgr', 'ps', 'quick', 'roaq', 'roeq', 'roic', 'sgr', 'tang']
         for feature in mean_fill_features:
@@ -163,7 +160,7 @@ class StockDataProcessor:
 
         # 下列特征的变化与时间高度相关，采用时间序列插值法填充缺失值
         # fill missing values with time series interpolation
-        time_series_features = ['mom1m', 'mom6m', 'std_turn', 'std_dolvol', 'turn', 'retvol', 'maxret', 'rsup']
+        time_series_features = ['mom1m', 'mom6m', 'mom12m', 'mom36m', 'std_turn', 'std_dolvol', 'turn', 'retvol', 'maxret', 'rsup']
         for feature in time_series_features:
             if feature not in self.datasets["train"].columns:
                 print(f"Feature '{feature}' not found in the DataFrame.")
@@ -237,8 +234,8 @@ class StockDataProcessor:
                 print(f"Skipping feature {feature} with zero standard deviation.")
                 continue
 
-            # 计算掩码，仅保留 mean ± 5*std 范围内的样本
-            feature_mask = (self.datasets["train"][feature] >= mean - 5 * std) & (self.datasets["train"][feature] <= mean + 5 * std)
+            # 计算掩码，仅保留 mean ± 15*std 范围内的样本
+            feature_mask = (self.datasets["train"][feature] >= mean - 15 * std) & (self.datasets["train"][feature] <= mean + 15 * std)
 
             # 合并掩码
             mask &= feature_mask
@@ -248,6 +245,11 @@ class StockDataProcessor:
 
         print(f"Removed {len(mask) - mask.sum()} rows with outliers from training data.")
         print("Size after deal_with_outlier:", len(self.datasets["train"]))
+
+    def save_datasets_to_csv(self, train_path, val_path, test_path):
+        self.datasets["train"].to_csv(train_path, index=True)
+        self.datasets["val"].to_csv(val_path, index=True)
+        self.datasets["test"].to_csv(test_path, index=True)
 
 
 
@@ -261,8 +263,13 @@ def split_dataset_with_target(df):
     y = df["ret"]
     return X, y
 
-
-
+def ks_normality_test(df):
+    normal_features = []
+    for column in df.select_dtypes(include=['float64', 'int64']).columns:
+        stat, p_value = stats.kstest(df[column].dropna(), 'norm')  # 检验正态性
+        if p_value > 0.05:
+            normal_features.append(column)
+    return normal_features
 
 
 
@@ -270,14 +277,14 @@ def main():
     # 这是我的文件路径，在自己电脑跑记得改掉
     # for easier use, hard code in file path
     data_file_path = 'C:/Code/Python/FQA_final/Datas/GHZ_ZHY_V8.csv'
-
-    # create a StockDataProcessor object and preprocess the dataframe
     data_processor = StockDataProcessor(data_file_path)
-    print(data_processor.get_df().info())
-    
-    print(f"Size of Training Set: {len(data_processor.datasets['train'])}")
-    print(f"Size of Validation Set: {len(data_processor.datasets['val'])}")
-    print(f"Size of Testing Set: {len(data_processor.datasets['test'])}")
+
+    train_path = 'C:/Code/Python/FQA_final/Datas/train_data.csv'
+    val_path = 'C:/Code/Python/FQA_final/Datas/val_data.csv'
+    test_path = 'C:/Code/Python/FQA_final/Datas/test_data.csv'
+
+    data_processor.save_datasets_to_csv(train_path, val_path, test_path)
+
 
 
 
