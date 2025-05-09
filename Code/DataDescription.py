@@ -37,6 +37,13 @@ class StockDataProcessor:
     def _read_data(self, data_file_path):
         self._row_data = pd.read_csv(data_file_path, encoding='utf-8', low_memory=False)
         self._df = pd.DataFrame(self._row_data)
+        
+        # 检查数据类别
+        print("Data type: ")
+        data_types = self._df.dtypes  # 获取每列的数据类型
+        type_counts = data_types.value_counts()  # 按数据类型统计
+        print(type_counts)  # 打印统计结果
+
 
 
     def _preprocess(self):
@@ -86,27 +93,27 @@ def main():
     # # get the correlation matrix
     # correlation_matrix = df.corr()
 
-    print("Plotting heatmap...")
-    # 设置 Seaborn 样式
-    # 计算特征之间的相关性矩阵
-    correlation_matrix = df[main_features].corr()
+    # print("Plotting heatmap...")
+    # # 设置 Seaborn 样式
+    # # 计算特征之间的相关性矩阵
+    # correlation_matrix = df[main_features].corr()
 
-    # 设置 Seaborn 样式
-    sns.set(style="white")
+    # # 设置 Seaborn 样式
+    # sns.set(style="white")
 
-    # 创建绘图窗口
-    plt.figure(figsize=(12, 10))
+    # # 创建绘图窗口
+    # plt.figure(figsize=(12, 10))
 
-    # 绘制相关性热力图
-    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f', linewidths=0.5, square=True, cbar_kws={'shrink': 0.8})
-    # 设置标题
-    plt.title('Main Features Correlation Heatmap of Features')
+    # # 绘制相关性热力图
+    # sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f', linewidths=0.5, square=True, cbar_kws={'shrink': 0.8})
+    # # 设置标题
+    # plt.title('Main Features Correlation Heatmap of Features')
 
-    # 保存图像而不是显示
-    plt.savefig("main_features_correlation_heatmap.png")
+    # # 保存图像而不是显示
+    # plt.savefig("main_features_correlation_heatmap.png")
 
-    # 显示图像
-    plt.show()
+    # # 显示图像
+    # plt.show()
 
 
 
